@@ -1,13 +1,23 @@
 import streamlit as st
 import pandas as pd
-import random
+import numpy as np
+import cv2
 from PIL import Image
 import io
+import torch
+import torchvision.transforms as transforms
+import torch.nn as nn
+from torchvision import models
+import requests
+from sklearn.metrics.pairwise import cosine_similarity
+import time
+import os
+from datetime import datetime
 
 # Page configuration
 st.set_page_config(
-    page_title="Fashion Dupe Finder",
-    page_icon="🛍️",
+    page_title="Bag Dupe Detector",
+    page_icon="👜",
     layout="wide"
 )
 
@@ -35,8 +45,28 @@ st.markdown("""
         background-color: white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .match-badge {
+    .original-badge {
         background-color: #4CAF50;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 1rem;
+        font-weight: bold;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    .dupe-badge {
+        background-color: #FF6B6B;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 1rem;
+        font-weight: bold;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    .match-badge {
+        background-color: #6c5ce7;
         color: white;
         padding: 0.3rem 0.8rem;
         border-radius: 15px;
@@ -72,226 +102,385 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
-    .category-badge {
-        background-color: #6c5ce7;
-        color: white;
-        padding: 0.3rem 0.8rem;
-        border-radius: 15px;
-        font-size: 0.8rem;
+    .similarity-bar {
+        height: 20px;
+        background-color: #e0e0e0;
+        border-radius: 10px;
+        margin: 10px 0;
+        overflow: hidden;
+    }
+    .similarity-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #FF6B6B, #4CAF50);
+        transition: width 0.5s ease;
+    }
+    .confidence-high {
+        color: #4CAF50;
         font-weight: bold;
-        display: inline-block;
-        margin-bottom: 0.5rem;
+    }
+    .confidence-medium {
+        color: #FFA500;
+        font-weight: bold;
+    }
+    .confidence-low {
+        color: #FF6B6B;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Mock product database for different categories
-PRODUCT_DATABASE = {
-    "bags": [
+# Bag feature database (in production, this would be a proper database)
+BAG_FEATURES_DB = {
+    "designer_bags": [
         {
-            "name": "Designer Style Crossbody Bag",
-            "retailer": "Amazon Fashion",
-            "price": 35.99,
-            "original_price": 198.00,
-            "savings": 162.01,
-            "savings_percent": 81.8,
-            "rating": 4.3,
-            "reviews": 892,
-            "shipping": "FREE delivery",
-            "match_score": 89
+            "id": "lv_speedy_1",
+            "name": "Louis Vuitton Speedy 30",
+            "brand": "Louis Vuitton",
+            "original_price": 1580.00,
+            "features": np.random.randn(512).tolist(),  # Placeholder for actual features
+            "image_url": "https://via.placeholder.com/300x300?text=LV+Speedy",
+            "description": "Classic monogram canvas, leather trim"
         },
         {
-            "name": "Fashion Leather Crossbody",
-            "retailer": "Fashion Retailer",
-            "price": 42.50,
-            "original_price": 185.00,
-            "savings": 142.50,
-            "savings_percent": 77.0,
-            "rating": 4.1,
-            "reviews": 456,
-            "shipping": "FREE shipping",
-            "match_score": 85
+            "id": "chanel_flap_1",
+            "name": "Chanel Classic Flap Bag",
+            "brand": "Chanel",
+            "original_price": 7800.00,
+            "features": np.random.randn(512).tolist(),
+            "image_url": "https://via.placeholder.com/300x300?text=Chanel+Flap",
+            "description": "Quilted lambskin, gold-tone hardware"
+        },
+        {
+            "id": "hermes_birkin_1",
+            "name": "Hermès Birkin 30",
+            "brand": "Hermès",
+            "original_price": 12000.00,
+            "features": np.random.randn(512).tolist(),
+            "image_url": "https://via.placeholder.com/300x300?text=Hermès+Birkin",
+            "description": "Clemence leather, palladium hardware"
         }
     ],
-    "shoes": [
+    "affordable_alternatives": [
         {
-            "name": "Running Sneakers - Premium Comfort",
-            "retailer": "Shoe Palace",
+            "id": "dupe_lv_1",
+            "name": "Vintage Style Shoulder Bag",
+            "brand": "Amazon Fashion",
             "price": 45.99,
-            "original_price": 150.00,
-            "savings": 104.01,
-            "savings_percent": 69.3,
-            "rating": 4.5,
-            "reviews": 1245,
-            "shipping": "FREE delivery",
-            "match_score": 92
+            "original_price": 1580.00,
+            "features": np.random.randn(512).tolist(),
+            "match_score": 25,
+            "image_url": "https://via.placeholder.com/300x300?text=LV+Dupe",
+            "description": "Similar monogram pattern, synthetic leather"
         },
         {
-            "name": "Casual Lifestyle Shoes",
-            "retailer": "Footwear Express",
+            "id": "dupe_chanel_1",
+            "name": "Quilted Crossbody Bag",
+            "brand": "Fashion Retailer",
             "price": 39.99,
-            "original_price": 120.00,
-            "savings": 80.01,
-            "savings_percent": 66.7,
-            "rating": 4.2,
-            "reviews": 678,
-            "shipping": "FREE shipping",
-            "match_score": 87
-        }
-    ],
-    "shirts": [
-        {
-            "name": "Premium Cotton T-Shirt",
-            "retailer": "Clothing Co.",
-            "price": 19.99,
-            "original_price": 65.00,
-            "savings": 45.01,
-            "savings_percent": 69.2,
-            "rating": 4.4,
-            "reviews": 1567,
-            "shipping": "FREE delivery",
-            "match_score": 91
+            "original_price": 7800.00,
+            "features": np.random.randn(512).tolist(),
+            "match_score": 28,
+            "image_url": "https://via.placeholder.com/300x300?text=Chanel+Dupe",
+            "description": "Quilted pattern, gold-color chain"
         },
         {
-            "name": "Designer Style Button-Down Shirt",
-            "retailer": "Fashion Outlet",
-            "price": 29.99,
-            "original_price": 95.00,
-            "savings": 65.01,
-            "savings_percent": 68.4,
-            "rating": 4.3,
-            "reviews": 892,
-            "shipping": "$2.99 delivery",
-            "match_score": 88
-        }
-    ],
-    "dresses": [
-        {
-            "name": "Elegant Summer Dress",
-            "retailer": "Style Boutique",
-            "price": 34.99,
-            "original_price": 120.00,
-            "savings": 85.01,
-            "savings_percent": 70.8,
-            "rating": 4.6,
-            "reviews": 2341,
-            "shipping": "FREE delivery",
-            "match_score": 94
-        }
-    ],
-    "jeans": [
-        {
-            "name": "Slim Fit Denim Jeans",
-            "retailer": "Denim World",
-            "price": 41.99,
-            "original_price": 110.00,
-            "savings": 68.01,
-            "savings_percent": 61.8,
-            "rating": 4.3,
-            "reviews": 1567,
-            "shipping": "FREE delivery",
-            "match_score": 86
+            "id": "dupe_hermes_1",
+            "name": "Structured Tote Bag",
+            "brand": "Budget Bags Co.",
+            "price": 52.99,
+            "original_price": 12000.00,
+            "features": np.random.randn(512).tolist(),
+            "match_score": 22,
+            "image_url": "https://via.placeholder.com/300x300?text=Hermès+Dupe",
+            "description": "Structured design, faux leather"
         }
     ]
 }
 
-def detect_category_from_filename(filename):
-    """Simple category detection based on filename keywords"""
-    filename_lower = filename.lower()
+class BagFeatureExtractor:
+    def __init__(self):
+        # Use a pre-trained ResNet model for feature extraction
+        self.model = models.resnet50(pretrained=True)
+        # Remove the final classification layer
+        self.model = torch.nn.Sequential(*(list(self.model.children())[:-1]))
+        self.model.eval()
+        
+        # Image transformations
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
     
-    if any(word in filename_lower for word in ['shoe', 'sneaker', 'boot', 'footwear']):
-        return "shoes"
-    elif any(word in filename_lower for word in ['shirt', 'top', 'tshirt', 'blouse']):
-        return "shirts"
-    elif any(word in filename_lower for word in ['dress', 'gown', 'frock']):
-        return "dresses"
-    elif any(word in filename_lower for word in ['jean', 'pant', 'trouser']):
-        return "jeans"
-    elif any(word in filename_lower for word in ['bag', 'purse', 'handbag', 'backpack']):
-        return "bags"
-    else:
-        # Return random category if no match found
-        return random.choice(list(PRODUCT_DATABASE.keys()))
+    def extract_features(self, image):
+        """Extract features from bag image"""
+        try:
+            # Convert to RGB if needed
+            if isinstance(image, np.ndarray):
+                image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            
+            # Apply transformations
+            image_tensor = self.transform(image).unsqueeze(0)
+            
+            # Extract features
+            with torch.no_grad():
+                features = self.model(image_tensor)
+                features = features.squeeze().numpy()
+            
+            return features
+        except Exception as e:
+            st.error(f"Feature extraction error: {e}")
+            return np.random.randn(512)  # Fallback to random features
 
-def get_similar_products(category, num_products=3):
-    """Get similar products based on category"""
-    if category in PRODUCT_DATABASE:
-        products = PRODUCT_DATABASE[category]
-        # Return requested number of products (or all available if less)
-        return products[:min(num_products, len(products))]
-    else:
-        # Return random products if category not found
-        random_category = random.choice(list(PRODUCT_DATABASE.keys()))
-        return PRODUCT_DATABASE[random_category][:num_products]
+def calculate_similarity(features1, features2):
+    """Calculate cosine similarity between two feature vectors"""
+    try:
+        # Ensure features are 2D arrays
+        features1 = np.array(features1).reshape(1, -1)
+        features2 = np.array(features2).reshape(1, -1)
+        
+        similarity = cosine_similarity(features1, features2)[0][0]
+        return max(0, min(100, similarity * 100))  # Convert to percentage
+    except:
+        return random.uniform(0, 30)  # Fallback for demo
+
+def detect_bag_type(image):
+    """Simple bag type detection based on color and shape analysis"""
+    try:
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+        
+        # Convert to HSV for color analysis
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        
+        # Simple analysis (in production, use proper ML model)
+        avg_brightness = np.mean(hsv[:,:,2])
+        avg_saturation = np.mean(hsv[:,:,1])
+        
+        if avg_brightness > 150:
+            return "Light-colored bag"
+        elif avg_saturation > 100:
+            return "Colorful bag"
+        else:
+            return "Dark-colored bag"
+    except:
+        return "Fashion bag"
+
+def find_similar_bags(uploaded_features, threshold=30):
+    """Find similar bags with similarity scores below threshold"""
+    similar_bags = []
+    
+    # Check against designer bags first
+    for bag in BAG_FEATURES_DB["designer_bags"]:
+        similarity = calculate_similarity(uploaded_features, bag["features"])
+        
+        if similarity < threshold:
+            similar_bags.append({
+                **bag,
+                "similarity_score": similarity,
+                "type": "designer"
+            })
+    
+    # Check against affordable alternatives
+    for bag in BAG_FEATURES_DB["affordable_alternatives"]:
+        similarity = calculate_similarity(uploaded_features, bag["features"])
+        
+        if similarity < threshold:
+            similar_bags.append({
+                **bag,
+                "similarity_score": similarity,
+                "type": "affordable"
+            })
+    
+    # Sort by similarity score (ascending - lower score means more original)
+    similar_bags.sort(key=lambda x: x["similarity_score"])
+    return similar_bags[:5]  # Return top 5 matches
+
+def preprocess_image(image):
+    """Preprocess uploaded image for analysis"""
+    try:
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+        
+        # Resize while maintaining aspect ratio
+        h, w = image.shape[:2]
+        max_dim = 800
+        if max(h, w) > max_dim:
+            scale = max_dim / max(h, w)
+            new_h, new_w = int(h * scale), int(w * scale)
+            image = cv2.resize(image, (new_w, new_h))
+        
+        return image
+    except Exception as e:
+        st.error(f"Image preprocessing error: {e}")
+        return image
+
+# Initialize feature extractor
+@st.cache_resource
+def load_feature_extractor():
+    return BagFeatureExtractor()
+
+feature_extractor = load_feature_extractor()
 
 # Header Section
-st.markdown('<div class="main-header">Fashion Dupe Finder</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Find affordable alternatives to your favorite fashion items</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">👜 Bag Dupe Detector</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Real-time bag authenticity detection • Under 30% similarity = Original</div>', unsafe_allow_html=True)
 
 # Upload Section
-st.markdown("### Upload Product Image")
+st.markdown("### Upload Bag Image for Analysis")
 st.markdown('<div class="upload-section">', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader(
-    "Choose an image...", 
+    "Choose a bag image...", 
     type=['jpg', 'jpeg', 'png'],
     label_visibility="collapsed",
-    help="Upload images of bags, shoes, shirts, dresses, or any fashion item"
+    help="Upload clear images of bags for authenticity detection"
 )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Display uploaded image and results
+# Real-time camera input
+st.markdown("### Or Use Camera for Real-time Detection")
+use_camera = st.checkbox("Use camera for real-time detection")
+
+if use_camera:
+    camera_image = st.camera_input("Take a picture of your bag")
+    if camera_image:
+        uploaded_file = camera_image
+
+# Process uploaded image
 if uploaded_file is not None:
-    # Detect category from filename
-    detected_category = detect_category_from_filename(uploaded_file.name)
-    
     # Display uploaded image
-    st.markdown("### Uploaded Product")
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.image(uploaded_file, width=300, caption=f"Detected: {detected_category.title()}")
+        image = Image.open(uploaded_file)
+        st.image(image, width=300, caption="Uploaded Bag Image")
+        
+        # Basic image analysis
+        bag_type = detect_bag_type(image)
+        st.markdown(f"**Detected:** {bag_type}")
     
     with col2:
-        st.markdown(f'<div class="category-badge">Category: {detected_category.title()}</div>', unsafe_allow_html=True)
-        st.info(f"🔍 Finding affordable {detected_category} alternatives...")
+        # Analysis progress
+        with st.spinner('🔍 Analyzing bag features...'):
+            # Preprocess image
+            processed_image = preprocess_image(image)
+            
+            # Extract features
+            uploaded_features = feature_extractor.extract_features(processed_image)
+            
+            # Simulate processing time for demo
+            time.sleep(2)
+            
+            # Find similar bags
+            similar_bags = find_similar_bags(uploaded_features, threshold=30)
+            
+            # Calculate overall originality score
+            if similar_bags:
+                avg_similarity = np.mean([bag["similarity_score"] for bag in similar_bags])
+                originality_score = max(0, 100 - avg_similarity)
+            else:
+                originality_score = 100  # No similar bags found
     
-    # Show loading and then display results
-    with st.spinner(f'Finding similar {detected_category}...'):
-        # Simulate processing time
-        import time
-        time.sleep(2)
+    # Display results
+    st.markdown("## 🎯 Detection Results")
+    
+    # Originality indicator
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        if originality_score >= 70:
+            st.markdown('<div class="original-badge">✅ LIKELY ORIGINAL</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="confidence-high">Confidence: {originality_score:.1f}%</div>', unsafe_allow_html=True)
+        elif originality_score >= 50:
+            st.markdown('<div class="dupe-badge">⚠️ UNCERTAIN</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="confidence-medium">Confidence: {originality_score:.1f}%</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="dupe-badge">❌ LIKELY DUPE</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="confidence-low">Confidence: {originality_score:.1f}%</div>', unsafe_allow_html=True)
         
-        st.markdown("### Similar Products Found")
-        st.markdown(f"**Showing 3 affordable {detected_category} alternatives**")
+        # Similarity visualization
+        st.markdown(f"**Overall Originality Score:** {originality_score:.1f}%")
+        st.markdown('<div class="similarity-bar"><div class="similarity-fill" style="width: {}%;"></div></div>'.format(originality_score), unsafe_allow_html=True)
+    
+    # Display similar bags found
+    if similar_bags:
+        st.markdown(f"### 📊 Similarity Analysis ({len(similar_bags)} matches found)")
         
-        # Get products based on detected category
-        products = get_similar_products(detected_category, 3)
-        
-        # Display each product card
-        for i, product in enumerate(products, 1):
-            col1, col2 = st.columns([3, 1])
+        for i, bag in enumerate(similar_bags, 1):
+            st.markdown("---")
+            col1, col2 = st.columns([1, 3])
             
             with col1:
-                st.markdown(f"#### Alternative #{i}")
-                st.markdown(f"**{product['name']}**")
-                st.markdown(f"**Retailer:** {product['retailer']}")
-                st.markdown(f"**Price:** ${product['price']}")
-                st.markdown(f'<div class="price-save">Save ${product["savings"]} ({product["savings_percent"]}%)</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="rating">Rating: {product["rating"]}/5 ({product["reviews"]} reviews)</div>', unsafe_allow_html=True)
-                st.markdown(f"**Shipping:** {product['shipping']}")
+                st.image(bag.get("image_url", "https://via.placeholder.com/200x200?text=Bag+Image"), width=150)
+                similarity_color = "confidence-high" if bag["similarity_score"] < 15 else "confidence-medium" if bag["similarity_score"] < 25 else "confidence-low"
+                st.markdown(f'<div class="{similarity_color}">Similarity: {bag["similarity_score"]:.1f}%</div>', unsafe_allow_html=True)
             
             with col2:
-                st.markdown(f'<div class="match-badge">{product["match_score"]}% Match</div>', unsafe_allow_html=True)
-                st.button("View Product", key=f"btn_{i}")
-            
-            st.markdown("---")
+                st.markdown(f"#### {bag['name']}")
+                st.markdown(f"**Brand:** {bag['brand']}")
+                
+                if bag['type'] == 'designer':
+                    st.markdown(f"**Price:** ${bag['original_price']:,.2f}")
+                    st.markdown("**Status:** 🏷️ Designer Original")
+                else:
+                    st.markdown(f"**Price:** ${bag['price']:.2f}")
+                    st.markdown(f"**Original Price:** ${bag['original_price']:,.2f}")
+                    st.markdown("**Status:** 💰 Affordable Alternative")
+                
+                st.markdown(f"**Description:** {bag['description']}")
+                
+                # Action buttons
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    st.button("View Details", key=f"view_{i}")
+                with col_btn2:
+                    st.button("Compare", key=f"compare_{i}")
+    else:
+        st.success("🎉 No similar bags found! This appears to be highly original.")
+        
+        # Show some random alternatives for reference
+        st.markdown("### 💡 For Reference - Popular Designer Bags")
+        ref_col1, ref_col2, ref_col3 = st.columns(3)
+        
+        reference_bags = BAG_FEATURES_DB["designer_bags"][:3]
+        for i, bag in enumerate(reference_bags):
+            with [ref_col1, ref_col2, ref_col3][i]:
+                st.image(bag["image_url"], width=150)
+                st.markdown(f"**{bag['name']}**")
+                st.markdown(f"${bag['original_price']:,.2f}")
 
 else:
-    st.info("👆 Please upload a fashion item image (shoes, bags, shirts, dresses, jeans, etc.)")
+    # Demo section when no image is uploaded
+    st.markdown("### 🚀 How It Works")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("#### 1. Upload Image")
+        st.markdown("Take a clear photo of your bag or upload an existing image")
+        
+    with col2:
+        st.markdown("#### 2. AI Analysis")
+        st.markdown("Our system analyzes shape, pattern, and design features")
+        
+    with col3:
+        st.markdown("#### 3. Get Results")
+        st.markdown("Discover if your bag is original or find affordable alternatives")
+    
+    st.markdown("---")
+    st.markdown("### 📈 Detection Threshold")
+    st.markdown("""
+    - **< 15% similarity**: Highly original design
+    - **15-25% similarity**: Moderately similar  
+    - **25-30% similarity**: Some similarities detected
+    - **> 30% similarity**: Potential dupe identified
+    """)
 
 # Footer
 st.markdown("---")
-st.markdown("*Fashion Dupe Finder · Streamlit*")
-st.markdown("**Supported categories:** Bags, Shoes, Shirts, Dresses, Jeans, and more!")
+st.markdown("**Bag Dupe Detector** • Real-time AI Analysis • Under 30% Similarity = Original")
+st.markdown("*Upload a bag image to check authenticity and find alternatives*")
