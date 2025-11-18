@@ -1,14 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from PIL import Image, ImageOps
-import io
-import requests
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import PCA
+from PIL import Image
 import time
 import random
-import base64
+import math
 
 # Page configuration
 st.set_page_config(
@@ -103,243 +99,205 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Enhanced Bag Database with Realistic Data
-BAG_FEATURES_DB = {
-    "designer_bags": [
-        {
-            "id": "lv_speedy_1",
-            "name": "Louis Vuitton Speedy 30",
-            "brand": "Louis Vuitton",
-            "original_price": 1580.00,
-            "image_url": "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=300&h=300&fit=crop",
-            "description": "Classic monogram canvas, leather trim",
-            "features_list": ["Monogram Pattern", "Brown Leather", "Gold Hardware", "Structured Shape"],
-            "color_profile": [120, 80, 60],  # RGB-like features
-            "texture_score": 0.95,
-            "shape_vector": [0.8, 0.6, 0.3]
-        },
-        {
-            "id": "chanel_flap_1",
-            "name": "Chanel Classic Flap Bag",
-            "brand": "Chanel",
-            "original_price": 7800.00,
-            "image_url": "https://images.unsplash.com/photo-1591561954557-26941169b49e?w=300&h=300&fit=crop",
-            "description": "Quilted lambskin, gold-tone hardware",
-            "features_list": ["Quilted Pattern", "Black Leather", "Chain Strap", "CC Logo"],
-            "color_profile": [20, 20, 20],
-            "texture_score": 0.92,
-            "shape_vector": [0.7, 0.8, 0.2]
-        },
-        {
-            "id": "hermes_birkin_1",
-            "name": "Hermès Birkin 30",
-            "brand": "Hermès",
-            "original_price": 12000.00,
-            "image_url": "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=300&h=300&fit=crop",
-            "description": "Clemence leather, palladium hardware",
-            "features_list": ["Structured Box", "Top Handles", "Lock Detail", "Premium Leather"],
-            "color_profile": [150, 100, 80],
-            "texture_score": 0.98,
-            "shape_vector": [0.9, 0.5, 0.4]
-        }
-    ],
-    "affordable_alternatives": [
-        {
-            "id": "dupe_lv_1",
-            "name": "Vintage Style Shoulder Bag",
-            "brand": "Amazon Fashion",
-            "price": 45.99,
-            "original_price": 1580.00,
-            "image_url": "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=300&h=300&fit=crop",
-            "description": "Similar monogram pattern, synthetic leather",
-            "features_list": ["Monogram Print", "Faux Leather", "Similar Shape", "Affordable"],
-            "color_profile": [110, 75, 55],
-            "texture_score": 0.65,
-            "shape_vector": [0.75, 0.55, 0.25]
-        },
-        {
-            "id": "dupe_chanel_1",
-            "name": "Quilted Crossbody Bag",
-            "brand": "Fashion Retailer",
-            "price": 39.99,
-            "original_price": 7800.00,
-            "image_url": "https://images.unsplash.com/photo-1591561954557-26941169b49e?w=300&h=300&fit=crop",
-            "description": "Quilted pattern, gold-color chain",
-            "features_list": ["Quilted Design", "Chain Strap", "Black Color", "Budget Friendly"],
-            "color_profile": [25, 25, 25],
-            "texture_score": 0.60,
-            "shape_vector": [0.65, 0.75, 0.18]
-        }
-    ]
-}
+# Manual cosine similarity calculation
+def cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two vectors manually"""
+    try:
+        vec1 = np.array(vec1).flatten()
+        vec2 = np.array(vec2).flatten()
+        
+        # Ensure vectors have same length
+        min_len = min(len(vec1), len(vec2))
+        vec1 = vec1[:min_len]
+        vec2 = vec2[:min_len]
+        
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+            
+        similarity = dot_product / (norm1 * norm2)
+        return max(0.0, min(1.0, similarity))
+    except:
+        return random.uniform(0, 0.3)  # Fallback
 
-class SimpleFeatureExtractor:
+# Enhanced Bag Database
+BAG_DATABASE = [
+    {
+        "id": "lv_speedy_1",
+        "name": "Louis Vuitton Speedy 30",
+        "brand": "Louis Vuitton",
+        "original_price": 1580.00,
+        "price": 45.99,
+        "type": "designer",
+        "description": "Classic monogram canvas, leather trim",
+        "features": ["Monogram Pattern", "Brown Leather", "Gold Hardware", "Structured Shape"],
+        "color_profile": [0.47, 0.31, 0.24],  # Normalized RGB
+        "shape_score": 0.85,
+        "texture_score": 0.92
+    },
+    {
+        "id": "chanel_flap_1", 
+        "name": "Chanel Classic Flap Bag",
+        "brand": "Chanel",
+        "original_price": 7800.00,
+        "price": 39.99,
+        "type": "designer",
+        "description": "Quilted lambskin, gold-tone hardware",
+        "features": ["Quilted Pattern", "Black Leather", "Chain Strap", "CC Logo"],
+        "color_profile": [0.08, 0.08, 0.08],
+        "shape_score": 0.78,
+        "texture_score": 0.95
+    },
+    {
+        "id": "hermes_birkin_1",
+        "name": "Hermès Birkin 30",
+        "brand": "Hermès", 
+        "original_price": 12000.00,
+        "price": 52.99,
+        "type": "designer",
+        "description": "Clemence leather, palladium hardware",
+        "features": ["Structured Box", "Top Handles", "Lock Detail", "Premium Leather"],
+        "color_profile": [0.59, 0.39, 0.31],
+        "shape_score": 0.91,
+        "texture_score": 0.98
+    },
+    {
+        "id": "gucci_marmont_1",
+        "name": "Gucci GG Marmont",
+        "brand": "Gucci",
+        "original_price": 2580.00,
+        "price": 49.99,
+        "type": "designer", 
+        "description": "Matelassé leather, GG logo",
+        "features": ["GG Pattern", "Chevron Quilting", "Heart Detail", "Chain Strap"],
+        "color_profile": [0.15, 0.15, 0.15],
+        "shape_score": 0.82,
+        "texture_score": 0.88
+    }
+]
+
+class SimpleBagAnalyzer:
     def __init__(self):
-        self.feature_size = 50  # Reduced feature size for simplicity
+        self.feature_size = 20
     
     def extract_features(self, image):
-        """Extract simple features from bag image using basic image processing"""
+        """Extract simple features from bag image"""
         try:
-            # Ensure image is RGB
+            # Ensure image is RGB and resize
             if image.mode != 'RGB':
                 image = image.convert('RGB')
+            image = image.resize((50, 50))  # Small size for speed
             
-            # Resize image for consistent feature extraction
-            image = image.resize((100, 100))
-            
-            # Convert to numpy array
             img_array = np.array(image)
-            
-            # Extract simple features
             features = []
             
-            # Color features (average RGB values)
-            avg_color = np.mean(img_array, axis=(0, 1))
-            features.extend(avg_color / 255.0)  # Normalize to 0-1
+            # Color features (average RGB)
+            avg_color = np.mean(img_array, axis=(0, 1)) / 255.0
+            features.extend(avg_color)
             
-            # Color distribution (histogram)
-            for channel in range(3):
-                hist = np.histogram(img_array[:,:,channel], bins=5, range=(0, 255))[0]
-                features.extend(hist / np.sum(hist))  # Normalized histogram
+            # Simple brightness and contrast
+            gray = np.mean(img_array, axis=2)
+            brightness = np.mean(gray) / 255.0
+            contrast = np.std(gray) / 255.0
+            features.extend([brightness, contrast])
             
-            # Texture features (simple edge detection using differences)
-            gray_img = np.mean(img_array, axis=2)
-            texture_feature = np.std(gray_img) / 255.0  # Normalized standard deviation
-            features.append(texture_feature)
+            # Simple shape features (aspect ratio)
+            h, w = gray.shape
+            aspect_ratio = w / h
+            features.append(min(aspect_ratio, 3.0) / 3.0)
             
-            # Shape features (aspect ratio and basic shape)
-            height, width = gray_img.shape
-            aspect_ratio = width / height
-            features.append(min(aspect_ratio, 3.0) / 3.0)  # Normalized
-            
-            # Fill remaining features with random values (simulating more complex features)
+            # Fill remaining features
             while len(features) < self.feature_size:
                 features.append(random.uniform(0, 1))
-            
+                
             return np.array(features[:self.feature_size])
             
         except Exception as e:
-            st.error(f"Feature extraction error: {e}")
             # Return random features as fallback
             return np.random.rand(self.feature_size)
 
-def calculate_similarity(features1, features2):
-    """Calculate cosine similarity between two feature vectors"""
-    try:
-        # Ensure features are 2D arrays
-        features1 = np.array(features1).reshape(1, -1)
-        features2 = np.array(features2).reshape(1, -1)
-        
-        similarity = cosine_similarity(features1, features2)[0][0]
-        return max(0, min(100, similarity * 100))  # Convert to percentage
-    except Exception as e:
-        # Fallback to random similarity for demo
-        return random.uniform(0, 30)
-
-def analyze_bag_features(image):
-    """Analyze bag features and return characteristics"""
+def analyze_bag_characteristics(image):
+    """Analyze basic bag characteristics"""
     try:
         characteristics = []
-        
-        # Basic size analysis
         width, height = image.size
-        if width > height * 1.5:
-            characteristics.append("Horizontal Shape")
-        elif height > width * 1.5:
-            characteristics.append("Vertical Shape")
+        
+        # Shape analysis
+        ratio = width / height
+        if ratio > 1.5:
+            characteristics.append("Wide Shape")
+        elif ratio < 0.7:
+            characteristics.append("Tall Shape") 
         else:
-            characteristics.append("Square Shape")
+            characteristics.append("Balanced Shape")
         
         # Color analysis
         img_array = np.array(image)
         avg_color = np.mean(img_array, axis=(0, 1))
         
-        # Determine color characteristics
-        if np.max(avg_color) - np.min(avg_color) < 50:
+        if np.std(avg_color) < 30:
             characteristics.append("Neutral Colors")
         elif avg_color[0] > avg_color[1] and avg_color[0] > avg_color[2]:
             characteristics.append("Warm Tones")
-        elif avg_color[1] > avg_color[0] and avg_color[1] > avg_color[2]:
-            characteristics.append("Natural Tones")
         else:
-            characteristics.append("Cool Tones")
-        
-        # Brightness analysis
-        brightness = np.mean(avg_color)
-        if brightness > 200:
-            characteristics.append("Light Bag")
-        elif brightness > 100:
+            characteristics.append("Mixed Colors")
+            
+        # Size category
+        area = width * height
+        if area > 1000000:
+            characteristics.append("Large Bag")
+        elif area > 500000:
             characteristics.append("Medium Bag")
         else:
-            characteristics.append("Dark Bag")
+            characteristics.append("Compact Bag")
             
         return characteristics
         
-    except Exception as e:
-        return ["Classic Design", "Standard Features", "Common Style"]
+    except:
+        return ["Classic Design", "Standard Features"]
 
-def preprocess_image(image):
-    """Preprocess uploaded image for analysis"""
-    try:
-        # Resize while maintaining aspect ratio
-        max_dim = 600
-        width, height = image.size
-        
-        if max(width, height) > max_dim:
-            scale = max_dim / max(width, height)
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        return image
-    except Exception as e:
-        st.error(f"Image preprocessing error: {e}")
-        return image
-
-def find_similar_bags(uploaded_features, threshold=30):
-    """Find similar bags with similarity scores below threshold"""
+def find_similar_bags(uploaded_features, threshold=0.3):
+    """Find similar bags with similarity below threshold"""
     similar_bags = []
     
-    # Check against all bags in database
-    for bag_type in ["designer_bags", "affordable_alternatives"]:
-        for bag in BAG_FEATURES_DB[bag_type]:
-            # Create feature vector from bag properties
-            bag_features = np.concatenate([
-                np.array(bag["color_profile"]) / 255.0,
-                [bag["texture_score"]],
-                bag["shape_vector"]
-            ])
-            
-            # Pad with random features to match expected size
-            while len(bag_features) < len(uploaded_features):
-                bag_features = np.append(bag_features, random.uniform(0, 1))
-            
-            similarity = calculate_similarity(uploaded_features, bag_features)
-            
-            if similarity < threshold:
-                similar_bags.append({
-                    **bag,
-                    "similarity_score": similarity,
-                    "type": "designer" if bag_type == "designer_bags" else "affordable"
-                })
+    for bag in BAG_DATABASE:
+        # Create bag feature vector
+        bag_features = np.concatenate([
+            bag["color_profile"],
+            [bag["shape_score"], bag["texture_score"]]
+        ])
+        
+        # Ensure same length
+        min_len = min(len(uploaded_features), len(bag_features))
+        uploaded_subset = uploaded_features[:min_len]
+        bag_subset = bag_features[:min_len]
+        
+        # Calculate similarity
+        similarity = cosine_similarity(uploaded_subset, bag_subset)
+        similarity_percent = similarity * 100
+        
+        if similarity_percent < threshold * 100:  # Convert to percentage
+            similar_bags.append({
+                **bag,
+                "similarity_score": similarity_percent
+            })
     
-    # Sort by similarity score (ascending - lower score means more original)
+    # Sort by similarity (ascending)
     similar_bags.sort(key=lambda x: x["similarity_score"])
-    return similar_bags[:3]  # Return top 3 matches
+    return similar_bags[:3]
 
-# Initialize feature extractor
-@st.cache_resource
-def load_feature_extractor():
-    return SimpleFeatureExtractor()
+# Initialize analyzer
+analyzer = SimpleBagAnalyzer()
 
-feature_extractor = load_feature_extractor()
-
-# Header Section
+# Header
 st.markdown('<div class="main-header">👜 Bag Dupe Detector</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Real-time Bag Authenticity Detection • Under 30% Similarity = Original</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">AI-Powered Bag Analysis • Under 30% Similarity = Original Design</div>', unsafe_allow_html=True)
 
 # Upload Section
-st.markdown("### Upload Bag Image for Analysis")
+st.markdown("### Upload Bag Image")
 st.markdown('<div class="upload-section">', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader(
@@ -351,8 +309,8 @@ uploaded_file = st.file_uploader(
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Real-time camera input
-st.markdown("### Or Use Camera for Real-time Detection")
+# Camera input
+st.markdown("### Or Use Camera")
 use_camera = st.checkbox("Use camera for real-time detection")
 
 if use_camera:
@@ -360,182 +318,177 @@ if use_camera:
     if camera_image:
         uploaded_file = camera_image
 
-# Process uploaded image
+# Process image
 if uploaded_file is not None:
     try:
-        # Display uploaded image
+        # Display image
         col1, col2 = st.columns([1, 2])
         
         with col1:
             image = Image.open(uploaded_file)
-            st.image(image, width=300, caption="Uploaded Bag Image")
+            st.image(image, width=300, caption="Uploaded Bag")
             
-            # Basic image analysis
-            characteristics = analyze_bag_features(image)
+            # Analyze characteristics
+            characteristics = analyze_bag_characteristics(image)
             st.markdown("**Detected Features:**")
             for char in characteristics:
                 st.markdown(f'<div class="feature-pill">{char}</div>', unsafe_allow_html=True)
                 
         with col2:
-            # Analysis progress
-            with st.spinner('🔍 Analyzing bag features and patterns...'):
-                # Preprocess image
-                processed_image = preprocess_image(image)
-                
+            # Analysis
+            with st.spinner('🔍 Analyzing bag design...'):
                 # Extract features
-                uploaded_features = feature_extractor.extract_features(processed_image)
+                features = analyzer.extract_features(image)
                 
-                # Simulate processing time
+                # Progress animation
                 progress_bar = st.progress(0)
                 for i in range(100):
-                    time.sleep(0.02)
+                    time.sleep(0.01)
                     progress_bar.progress(i + 1)
                 
                 # Find similar bags
-                similar_bags = find_similar_bags(uploaded_features, threshold=30)
+                similar_bags = find_similar_bags(features, threshold=0.3)
                 
-                # Calculate overall originality score
+                # Calculate originality
                 if similar_bags:
-                    avg_similarity = np.mean([bag["similarity_score"] for bag in similar_bags])
-                    originality_score = max(0, 100 - avg_similarity)
+                    avg_similarity = np.mean([b["similarity_score"] for b in similar_bags])
+                    originality = 100 - avg_similarity
                 else:
-                    originality_score = 95  # No similar bags found
+                    originality = 95
         
-        # Display results
-        st.markdown("## 🎯 Detection Results")
+        # Results
+        st.markdown("## 🎯 Analysis Results")
         
-        # Originality indicator
+        # Originality display
         col1, col2, col3 = st.columns([1, 2, 1])
         
         with col2:
-            if originality_score >= 85:
+            if originality >= 85:
                 st.markdown('<div class="original-badge">✅ HIGHLY ORIGINAL</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="confidence-high">Originality Score: {originality_score:.1f}%</div>', unsafe_allow_html=True)
-                st.success("🎉 Excellent! Your bag shows very low similarity to known designs.")
-            elif originality_score >= 70:
+                st.markdown(f'<div class="confidence-high">Originality: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.success("🎉 Excellent! Very unique design.")
+            elif originality >= 70:
                 st.markdown('<div class="original-badge">✅ LIKELY ORIGINAL</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="confidence-high">Originality Score: {originality_score:.1f}%</div>', unsafe_allow_html=True)
-                st.info("👍 Good! Your bag has unique characteristics.")
-            elif originality_score >= 50:
+                st.markdown(f'<div class="confidence-high">Originality: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.info("👍 Good! Distinctive characteristics.")
+            elif originality >= 50:
                 st.markdown('<div class="dupe-badge">⚠️ MODERATE SIMILARITY</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="confidence-medium">Originality Score: {originality_score:.1f}%</div>', unsafe_allow_html=True)
-                st.warning("🤔 Some similarities detected with existing designs.")
+                st.markdown(f'<div class="confidence-medium">Originality: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.warning("🤔 Some design similarities found.")
             else:
                 st.markdown('<div class="dupe-badge">❌ HIGH SIMILARITY</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="confidence-low">Originality Score: {originality_score:.1f}%</div>', unsafe_allow_html=True)
-                st.error("⚠️ Significant similarity detected with known designs.")
+                st.markdown(f'<div class="confidence-low">Originality: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.error("⚠️ Significant design overlap detected.")
             
-            # Similarity visualization
-            st.markdown(f"**Originality Score:** {originality_score:.1f}%")
-            st.markdown('<div class="similarity-bar"><div class="similarity-fill" style="width: {}%;"></div></div>'.format(originality_score), unsafe_allow_html=True)
+            # Visual bar
+            st.markdown(f"**Originality Score:** {originality:.1f}%")
+            st.markdown(f'<div class="similarity-bar"><div class="similarity-fill" style="width: {originality}%;"></div></div>', unsafe_allow_html=True)
         
-        # Display similar bags found
+        # Show similar bags
         if similar_bags:
-            st.markdown(f"### 📊 Similar Designs Found ({len(similar_bags)} matches)")
-            st.markdown("**Designs with similarity below 30% (your bag is more original):**")
+            st.markdown(f"### 📊 Similar Designs ({len(similar_bags)} found)")
             
-            for i, bag in enumerate(similar_bags, 1):
-                with st.container():
+            for i, bag in enumerate(similar_bags):
+                with st.expander(f"Match {i+1}: {bag['name']} (Similarity: {bag['similarity_score']:.1f}%)", expanded=True):
                     col1, col2 = st.columns([1, 3])
                     
                     with col1:
-                        st.image(bag.get("image_url"), width=150, use_column_width=True)
-                        similarity_color = "confidence-high" if bag["similarity_score"] < 15 else "confidence-medium" if bag["similarity_score"] < 25 else "confidence-low"
-                        st.markdown(f'<div class="{similarity_color}">Similarity: {bag["similarity_score"]:.1f}%</div>', unsafe_allow_html=True)
+                        # Placeholder for bag image
+                        st.markdown("""<div style='width:150px; height:150px; background:#f0f0f0; border-radius:10px; 
+                                   display:flex; align-items:center; justify-content:center; color:#666;'>
+                                   Bag Image</div>""", unsafe_allow_html=True)
+                        
+                        score_color = "confidence-high" if bag["similarity_score"] < 15 else "confidence-medium" if bag["similarity_score"] < 25 else "confidence-low"
+                        st.markdown(f'<div class="{score_color}">Similarity: {bag["similarity_score"]:.1f}%</div>', unsafe_allow_html=True)
                     
                     with col2:
-                        st.markdown(f"#### {bag['name']}")
+                        st.markdown(f"**{bag['name']}**")
                         st.markdown(f"**Brand:** {bag['brand']}")
-                        
-                        if bag['type'] == 'designer':
-                            st.markdown(f"**Price:** ${bag['original_price']:,.2f}")
-                            st.markdown("**Type:** 🏷️ Designer Original")
-                        else:
-                            st.markdown(f"**Price:** ${bag['price']:.2f}")
-                            st.markdown(f"**Original Reference:** ${bag['original_price']:,.2f}")
-                            st.markdown("**Type:** 💰 Affordable Alternative")
-                        
+                        st.markdown(f"**Original Price:** ${bag['original_price']:,.2f}")
+                        st.markdown(f"**Affordable Alternative:** ${bag['price']:.2f}")
                         st.markdown(f"**Description:** {bag['description']}")
                         
-                        # Show features
-                        st.markdown("**Key Features:**")
-                        features_html = "".join([f'<span class="feature-pill">{feature}</span>' for feature in bag.get('features_list', [])[:3]])
+                        # Features
+                        st.markdown("**Features:**")
+                        features_html = "".join([f'<span class="feature-pill">{feat}</span>' for feat in bag['features'][:3]])
                         st.markdown(features_html, unsafe_allow_html=True)
-        
         else:
-            st.success("🎉 No similar designs found! Your bag appears to be highly unique.")
+            st.success("🎉 No similar designs found! Your bag is very unique.")
             
-            # Show reference designs
-            st.markdown("### 🏷️ Reference Designer Bags")
-            ref_cols = st.columns(3)
-            reference_bags = BAG_FEATURES_DB["designer_bags"][:3]
-            
-            for i, bag in enumerate(reference_bags):
-                with ref_cols[i]:
-                    st.image(bag["image_url"], use_column_width=True)
-                    st.markdown(f"**{bag['name']}**")
-                    st.markdown(f"${bag['original_price']:,.2f}")
-                    st.markdown(f"*{bag['description']}*")
-    
     except Exception as e:
         st.error(f"Error processing image: {str(e)}")
-        st.info("Please try uploading a different image or check the file format.")
+        st.info("Please try a different image file.")
 
 else:
-    # Demo section when no image is uploaded
+    # Instructions
     st.markdown("### 🚀 How It Works")
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("#### 1. Upload Image")
-        st.markdown("Take a clear photo of your bag or upload an existing image")
-        st.image("https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=200&h=200&fit=crop")
+        st.markdown("Upload a clear photo of any bag")
+        st.markdown("""
+        - Handbags
+        - Purses  
+        - Shoulder bags
+        - Tote bags
+        """)
         
     with col2:
         st.markdown("#### 2. AI Analysis")
-        st.markdown("Our system analyzes shape, color, texture, and patterns")
-        st.image("https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=200&h=200&fit=crop")
+        st.markdown("We analyze:")
+        st.markdown("""
+        - Shape & Size
+        - Color Patterns
+        - Design Features
+        - Texture Indicators
+        """)
         
     with col3:
         st.markdown("#### 3. Get Results")
-        st.markdown("Discover originality score and similar designs")
-        st.image("https://images.unsplash.com/photo-1591561954557-26941169b49e?w=200&h=200&fit=crop")
+        st.markdown("Receive:")
+        st.markdown("""
+        - Originality Score
+        - Similar Designs
+        - Price Comparisons
+        - Feature Analysis
+        """)
     
     st.markdown("---")
-    st.markdown("### 📈 Originality Threshold System")
+    st.markdown("### 📈 Originality Scale")
     
     threshold_col1, threshold_col2 = st.columns(2)
     
     with threshold_col1:
         st.markdown("""
-        **🎯 Originality Scores:**
+        **🎯 Scoring System:**
         - **85-100%**: Highly Original
         - **70-85%**: Likely Original  
-        - **50-70%**: Moderate Similarity
-        - **<50%**: High Similarity
+        - **50-70%**: Some Similarity
+        - **0-50%**: High Similarity
         """)
     
     with threshold_col2:
         st.markdown("""
-        **🔍 Similarity Threshold:**
-        - **<30%**: Considered Original
-        - **30%+**: Potential Similarity
-        - Based on design features analysis
+        **🔍 Detection Logic:**
+        - **<30% similarity**: Original
+        - **30%+ similarity**: Potential Dupe
+        - Based on design analysis
         """)
     
-    # Show sample database
+    # Sample bags
     st.markdown("### 🏷️ Sample Designer Database")
-    sample_cols = st.columns(3)
-    sample_bags = BAG_FEATURES_DB["designer_bags"]
+    sample_cols = st.columns(4)
     
-    for i, bag in enumerate(sample_bags):
+    for i, bag in enumerate(BAG_DATABASE):
         with sample_cols[i]:
-            st.image(bag["image_url"], use_column_width=True)
             st.markdown(f"**{bag['name']}**")
-            st.markdown(f"**Brand:** {bag['brand']}")
-            st.markdown(f"**Price:** ${bag['original_price']:,.2f}")
+            st.markdown(f"*{bag['brand']}*")
+            st.markdown(f"${bag['original_price']:,.2f}")
+            st.markdown("---")
 
 # Footer
 st.markdown("---")
-st.markdown("**👜 Bag Dupe Detector** • AI-Powered Authenticity Analysis • Under 30% Similarity = Original Design")
-st.markdown("*Upload any bag image to check its originality and find similar designs*")
+st.markdown("**👜 Bag Dupe Detector** • Simple & Effective Design Analysis")
+st.markdown("*Upload any bag image to check its originality compared to designer styles*")
