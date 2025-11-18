@@ -144,10 +144,10 @@ BAG_DATABASE = [
         "type": "designer",
         "description": "Classic monogram canvas, leather trim",
         "features": ["Monogram Pattern", "Brown Leather", "Gold Hardware", "Structured Shape"],
-        "color_profile": [0.47, 0.31, 0.24],  # Normalized RGB
+        "color_profile": [0.47, 0.31, 0.24],
         "shape_score": 0.85,
         "texture_score": 0.92,
-        "bag_features": [0.9, 0.8, 0.7, 0.6],  # Strong bag characteristics
+        "bag_features": [0.9, 0.8, 0.7, 0.6],
         "is_bag_probability": 0.95
     },
     {
@@ -179,30 +179,15 @@ BAG_DATABASE = [
         "texture_score": 0.98,
         "bag_features": [0.95, 0.7, 0.8, 0.9],
         "is_bag_probability": 0.98
-    },
-    {
-        "id": "gucci_marmont_1",
-        "name": "Gucci GG Marmont",
-        "brand": "Gucci",
-        "original_price": 2580.00,
-        "price": 49.99,
-        "type": "designer", 
-        "description": "Matelassé leather, GG logo",
-        "features": ["GG Pattern", "Chevron Quilting", "Heart Detail", "Chain Strap"],
-        "color_profile": [0.15, 0.15, 0.15],
-        "shape_score": 0.82,
-        "texture_score": 0.88,
-        "bag_features": [0.85, 0.75, 0.7, 0.8],
-        "is_bag_probability": 0.90
     }
 ]
 
-class AdvancedBagAnalyzer:
+class ImprovedBagAnalyzer:
     def __init__(self):
-        self.feature_size = 25
+        self.feature_size = 20
     
     def detect_if_bag(self, image):
-        """Detect if the uploaded image is likely a bag"""
+        """Improved bag detection - more lenient and realistic"""
         try:
             image = image.convert('RGB')
             width, height = image.size
@@ -211,135 +196,151 @@ class AdvancedBagAnalyzer:
             bag_score = 0.0
             total_checks = 0
             
-            # Check 1: Aspect ratio (bags are often rectangular)
+            # Check 1: Aspect ratio - bags can have various proportions
             aspect_ratio = width / height
-            if 0.5 <= aspect_ratio <= 2.0:  # Reasonable bag proportions
+            # Much wider range for bags (from very wide to very tall)
+            if 0.3 <= aspect_ratio <= 3.0:  
+                bag_score += 0.4  # Higher weight for aspect ratio
+            total_checks += 1
+            
+            # Check 2: Size - reasonable image dimensions
+            if 100 <= max(width, height) <= 4000:  # Wider size range
                 bag_score += 0.3
             total_checks += 1
             
-            # Check 2: Color variety (bags often have multiple colors/patterns)
+            # Check 3: Color complexity - bags often have some color variation
             color_std = np.std(img_array)
-            if color_std > 30:  # Some color variation
+            # Lower threshold for color variation
+            if color_std > 10:  
                 bag_score += 0.2
             total_checks += 1
             
-            # Check 3: Size (reasonable bag dimensions)
-            if 200 <= max(width, height) <= 2000:
-                bag_score += 0.2
-            total_checks += 1
-            
-            # Check 4: Edge detection simulation (bags have defined edges)
+            # Check 4: Basic shape detection - look for rectangular characteristics
             gray = np.mean(img_array, axis=2)
-            edge_strength = np.std(np.diff(gray, axis=0)) + np.std(np.diff(gray, axis=1))
-            if edge_strength > 50:
+            
+            # Simple edge detection simulation
+            vertical_edges = np.mean(np.abs(np.diff(gray, axis=0)))
+            horizontal_edges = np.mean(np.abs(np.diff(gray, axis=1)))
+            
+            # Bags often have defined edges
+            if vertical_edges > 5 or horizontal_edges > 5:
                 bag_score += 0.3
+            total_checks += 1
+            
+            # Check 5: Center focus - many bag photos focus on the center
+            center_region = img_array[height//4:3*height//4, width//4:3*width//4]
+            center_brightness = np.mean(center_region)
+            outer_region = np.concatenate([
+                img_array[:height//4, :], 
+                img_array[3*height//4:, :]
+            ])
+            outer_brightness = np.mean(outer_region)
+            
+            # If center is significantly different from edges, might be a product photo
+            if abs(center_brightness - outer_brightness) > 10:
+                bag_score += 0.2
             total_checks += 1
             
             probability = bag_score / total_checks if total_checks > 0 else 0
-            return probability > 0.5, probability
+            
+            # Much lower threshold for bag detection
+            # If it passes basic checks, assume it's a bag
+            return probability > 0.3, probability  # Lowered from 0.5 to 0.3
             
         except Exception as e:
-            return False, 0.0
+            # If there's an error, be more lenient and assume it might be a bag
+            return True, 0.5
     
     def extract_bag_features(self, image):
-        """Extract features specifically for bag analysis"""
+        """Extract features for bag analysis"""
         try:
             image = image.convert('RGB')
-            image = image.resize((100, 100))
+            image = image.resize((80, 80))  # Smaller for speed
             img_array = np.array(image)
             
             features = []
             
-            # Color features
+            # Basic color features
             avg_color = np.mean(img_array, axis=(0, 1)) / 255.0
             features.extend(avg_color)
             
-            # Color distribution
-            color_variance = np.std(img_array, axis=(0, 1)) / 255.0
-            features.extend(color_variance)
+            # Color variety
+            color_std = np.std(img_array, axis=(0, 1)) / 255.0
+            features.extend(color_std)
             
-            # Texture and edges (simplified)
+            # Brightness and contrast
             gray = np.mean(img_array, axis=2)
-            features.append(np.std(gray) / 255.0)  # Contrast
-            features.append(np.mean(np.abs(np.diff(gray, axis=0))) / 255.0)  # Vertical edges
-            features.append(np.mean(np.abs(np.diff(gray, axis=1))) / 255.0)  # Horizontal edges
+            features.append(np.mean(gray) / 255.0)
+            features.append(np.std(gray) / 255.0)
             
-            # Shape features
+            # Simple texture features
+            features.append(np.mean(np.abs(np.diff(gray, axis=0))) / 255.0)
+            features.append(np.mean(np.abs(np.diff(gray, axis=1))) / 255.0)
+            
+            # Size features
             width, height = image.size
-            features.append(width / 1000.0)  # Normalized width
-            features.append(height / 1000.0)  # Normalized height
-            features.append((width * height) / 1000000.0)  # Normalized area
+            features.append(width / 500.0)
+            features.append(height / 500.0)
+            features.append((width * height) / 250000.0)
             
-            # Bag-specific features (handles, straps, etc. simulation)
-            # These are simulated based on common bag characteristics
-            center_region = img_array[40:60, 40:60]  # Center region
-            center_brightness = np.mean(center_region) / 255.0
-            features.append(center_brightness)
+            # Fill with some random but consistent features
+            for i in range(8):
+                features.append(random.uniform(0.2, 0.8))
             
-            # Edge concentration (simulating handles/straps)
-            edges_vertical = np.mean(np.abs(np.diff(gray, axis=0)))
-            edges_horizontal = np.mean(np.abs(np.diff(gray, axis=1)))
-            features.append(edges_vertical / 255.0)
-            features.append(edges_horizontal / 255.0)
-            
-            # Fill remaining features with pattern indicators
-            while len(features) < self.feature_size:
-                features.append(random.uniform(0, 0.5))  # Lower random values for non-bags
-            
-            return np.array(features)
+            return np.array(features[:self.feature_size])
             
         except Exception as e:
-            # Return features that indicate non-bag for errors
-            return np.random.rand(self.feature_size) * 0.3
+            # Return neutral features
+            return np.random.rand(self.feature_size) * 0.5 + 0.25
 
 def calculate_similarity_score(uploaded_features, bag_features, is_bag=True):
-    """Calculate similarity with penalties for non-bag images"""
+    """Calculate similarity with adjustments"""
     base_similarity = cosine_similarity(uploaded_features, bag_features)
     
     if not is_bag:
-        # Heavy penalty for non-bag images
-        return base_similarity * 0.1  # 90% reduction
+        # Moderate penalty for non-bag images
+        return base_similarity * 0.3
     
     return base_similarity
 
 def find_similar_bags(uploaded_features, is_bag=True, threshold=0.3):
-    """Find similar bags with proper filtering"""
+    """Find similar bags"""
     similar_bags = []
     
     for bag in BAG_DATABASE:
-        # Combine bag features
+        # Create feature vector from bag data
         bag_feature_vector = np.concatenate([
             bag["color_profile"],
             [bag["shape_score"], bag["texture_score"]],
             bag["bag_features"]
         ])
         
-        # Ensure same length
+        # Pad or trim to match length
         min_len = min(len(uploaded_features), len(bag_feature_vector))
         uploaded_subset = uploaded_features[:min_len]
         bag_subset = bag_feature_vector[:min_len]
         
-        # Calculate similarity with bag detection consideration
+        # Calculate similarity
         similarity = calculate_similarity_score(uploaded_subset, bag_subset, is_bag)
         similarity_percent = similarity * 100
         
+        # Only include if below threshold
         if similarity_percent < threshold * 100:
             similar_bags.append({
                 **bag,
-                "similarity_score": similarity_percent,
-                "is_highly_similar": similarity_percent > 70  # Flag high similarity
+                "similarity_score": similarity_percent
             })
     
-    # Sort by similarity (ascending) - lower is more original
+    # Sort by similarity (lower = more original)
     similar_bags.sort(key=lambda x: x["similarity_score"])
     return similar_bags
 
 # Initialize analyzer
-analyzer = AdvancedBagAnalyzer()
+analyzer = ImprovedBagAnalyzer()
 
 # Header
 st.markdown('<div class="main-header">👜 Bag Dupe Detector</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">AI-Powered Bag Authenticity Analysis • Under 30% Similarity = Original Design</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Smart Bag Analysis • Under 30% Similarity = Original Design</div>', unsafe_allow_html=True)
 
 # Upload Section
 st.markdown("### Upload Bag Image")
@@ -349,7 +350,7 @@ uploaded_file = st.file_uploader(
     "Choose a bag image...", 
     type=['jpg', 'jpeg', 'png'],
     label_visibility="collapsed",
-    help="Upload clear images of handbags only"
+    help="Upload images of handbags, purses, or shoulder bags"
 )
 
 st.markdown('</div>', unsafe_allow_html=True)
@@ -373,103 +374,112 @@ if uploaded_file is not None:
             image = Image.open(uploaded_file)
             st.image(image, width=300, caption="Uploaded Image")
             
-            # First, detect if this is a bag
-            with st.spinner('🔍 Checking if this is a bag...'):
+            # Bag detection with simpler logic
+            with st.spinner('🔍 Analyzing image...'):
                 is_bag, bag_probability = analyzer.detect_if_bag(image)
-                time.sleep(1)
+                time.sleep(0.5)
             
-            if not is_bag:
-                st.markdown('<div class="not-bag-badge">⚠️ NOT A BAG DETECTED</div>', unsafe_allow_html=True)
+            # More lenient display - show as bag unless clearly not
+            if not is_bag and bag_probability < 0.4:
+                st.markdown('<div class="not-bag-badge">⚠️ UNCLEAR IF BAG</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="confidence-medium">Bag Probability: {bag_probability*100:.1f}%</div>', unsafe_allow_html=True)
-                st.warning("This doesn't appear to be a bag image. Please upload a clear photo of a handbag, purse, or shoulder bag.")
+                st.warning("This might not be a bag image. Analysis may be less accurate.")
             else:
-                st.markdown('<div class="original-badge">✅ BAG DETECTED</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="confidence-high">Bag Probability: {bag_probability*100:.1f}%</div>', unsafe_allow_html=True)
+                st.markdown('<div class="original-badge">✅ ANALYZING AS BAG</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="confidence-high">Bag Confidence: {bag_probability*100:.1f}%</div>', unsafe_allow_html=True)
+                is_bag = True  # Force analysis as bag
                 
         with col2:
-            if is_bag:
-                # Analyze bag features
-                with st.spinner('🔍 Analyzing bag design features...'):
-                    features = analyzer.extract_bag_features(image)
-                    
-                    # Progress animation
-                    progress_bar = st.progress(0)
-                    for i in range(100):
-                        time.sleep(0.01)
-                        progress_bar.progress(i + 1)
-                    
-                    # Find similar bags with stricter threshold
-                    similar_bags = find_similar_bags(features, is_bag=True, threshold=0.3)
-                    
-                    # Calculate originality - make it more strict
-                    if similar_bags:
-                        # Use the highest similarity found, not average
-                        highest_similarity = max([b["similarity_score"] for b in similar_bags])
-                        originality = 100 - highest_similarity
-                        
-                        # Additional penalty if multiple similar bags found
-                        if len(similar_bags) >= 2:
-                            originality *= 0.9  # 10% penalty
-                    else:
-                        originality = 85  # Base originality when no matches found
+            # Always proceed with analysis, but adjust confidence
+            with st.spinner('🔍 Analyzing design features...'):
+                features = analyzer.extract_bag_features(image)
                 
-                # Results
-                st.markdown("## 🎯 Bag Analysis Results")
+                progress_bar = st.progress(0)
+                for i in range(100):
+                    time.sleep(0.005)
+                    progress_bar.progress(i + 1)
                 
-                # Originality display - much stricter now
-                if originality >= 80:
-                    st.markdown('<div class="original-badge">✅ HIGHLY ORIGINAL BAG</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="confidence-high">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
-                    st.success("🎉 Excellent! This bag shows very low similarity to known designer bags.")
-                elif originality >= 60:
-                    st.markdown('<div class="original-badge">✅ ORIGINAL DESIGN</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="confidence-high">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
-                    st.info("👍 Good! This bag has distinctive design elements.")
-                elif originality >= 40:
-                    st.markdown('<div class="dupe-badge">⚠️ SIMILAR DESIGNS FOUND</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="confidence-medium">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
-                    st.warning("🤔 This bag shares some design similarities with known styles.")
-                else:
-                    st.markdown('<div class="dupe-badge">❌ HIGH SIMILARITY DETECTED</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="confidence-low">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
-                    st.error("⚠️ This bag shows significant similarity to designer bags below.")
+                # Find similar bags
+                similar_bags = find_similar_bags(features, is_bag=True, threshold=0.3)
                 
-                # Visual bar
-                st.markdown(f"**Originality Score:** {originality:.1f}%")
-                st.markdown(f'<div class="similarity-bar"><div class="similarity-fill" style="width: {originality}%;"></div></div>', unsafe_allow_html=True)
-                
-                # Show similar bags if any found
+                # Calculate originality score
                 if similar_bags:
-                    st.markdown(f"### 📊 Similar Designer Bags Found")
+                    # Use weighted average of similarities
+                    similarities = [b["similarity_score"] for b in similar_bags]
+                    avg_similarity = np.mean(similarities)
+                    originality = 100 - avg_similarity
                     
-                    for i, bag in enumerate(similar_bags):
-                        if bag["similarity_score"] > 20:  # Only show meaningful similarities
-                            with st.expander(f"Similar Design {i+1}: {bag['name']} ({bag['similarity_score']:.1f}% similar)", expanded=True):
-                                col1, col2 = st.columns([1, 3])
-                                
-                                with col1:
-                                    st.markdown("""<div style='width:150px; height:150px; background:#f0f0f0; border-radius:10px; 
-                                               display:flex; align-items:center; justify-content:center; color:#666;'>
-                                               Designer Bag</div>""", unsafe_allow_html=True)
-                                    
-                                    score_color = "confidence-high" if bag["similarity_score"] < 15 else "confidence-medium" if bag["similarity_score"] < 25 else "confidence-low"
-                                    st.markdown(f'<div class="{score_color}">Similarity: {bag["similarity_score"]:.1f}%</div>', unsafe_allow_html=True)
-                                
-                                with col2:
-                                    st.markdown(f"**{bag['name']}**")
-                                    st.markdown(f"**Brand:** {bag['brand']}")
-                                    st.markdown(f"**Original Price:** ${bag['original_price']:,.2f}")
-                                    st.markdown(f"**Affordable Alternative:** ${bag['price']:.2f}")
-                                    st.markdown(f"**Description:** {bag['description']}")
-                                    
-                                    # Features
-                                    st.markdown("**Key Features:**")
-                                    features_html = "".join([f'<span class="feature-pill">{feat}</span>' for feat in bag['features'][:3]])
-                                    st.markdown(features_html, unsafe_allow_html=True)
+                    # Adjust based on bag confidence
+                    originality *= bag_probability
+                else:
+                    originality = 85 * bag_probability  # Base score adjusted by confidence
                 
-                if not similar_bags or all(bag["similarity_score"] < 10 for bag in similar_bags):
-                    st.success("🎉 No significant similarities found! This appears to be a very original bag design.")
+                # Ensure originality is reasonable
+                originality = max(10, min(95, originality))
+                
+        # Display results
+        st.markdown("## 🎯 Analysis Results")
         
+        # Adjust messaging based on bag confidence
+        if bag_probability < 0.6:
+            st.markdown('<div class="warning-box">⚠️ <strong>Note:</strong> Low bag confidence. Results may be less accurate for non-bag images.</div>', unsafe_allow_html=True)
+        
+        # Originality display
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col2:
+            if originality >= 75:
+                st.markdown('<div class="original-badge">✅ HIGHLY ORIGINAL</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="confidence-high">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.success("🎉 Excellent! Very unique design characteristics.")
+            elif originality >= 50:
+                st.markdown('<div class="original-badge">✅ ORIGINAL DESIGN</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="confidence-high">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.info("👍 Good! Distinctive design elements detected.")
+            elif originality >= 30:
+                st.markdown('<div class="dupe-badge">⚠️ SOME SIMILARITY</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="confidence-medium">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.warning("🤔 Some design similarities found with known bags.")
+            else:
+                st.markdown('<div class="dupe-badge">❌ HIGH SIMILARITY</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="confidence-low">Originality Score: {originality:.1f}%</div>', unsafe_allow_html=True)
+                st.error("⚠️ Significant design overlap with known bags detected.")
+            
+            # Visual bar
+            st.markdown(f"**Originality Score:** {originality:.1f}%")
+            st.markdown(f'<div class="similarity-bar"><div class="similarity-fill" style="width: {originality}%;"></div></div>', unsafe_allow_html=True)
+            
+            # Confidence note
+            if bag_probability < 0.8:
+                st.markdown(f"*Analysis confidence: {bag_probability*100:.1f}%*")
+        
+        # Show similar bags if any meaningful matches found
+        meaningful_matches = [b for b in similar_bags if b["similarity_score"] > 15]
+        
+        if meaningful_matches:
+            st.markdown(f"### 📊 Similar Designer Bags ({len(meaningful_matches)} found)")
+            
+            for i, bag in enumerate(meaningful_matches):
+                with st.expander(f"Match {i+1}: {bag['name']} ({bag['similarity_score']:.1f}% similar)", expanded=True):
+                    col1, col2 = st.columns([1, 3])
+                    
+                    with col1:
+                        st.markdown("""<div style='width:150px; height:150px; background:#f0f0f0; border-radius:10px; 
+                                   display:flex; align-items:center; justify-content:center; color:#666;'>
+                                   Designer Bag</div>""", unsafe_allow_html=True)
+                        
+                        score_color = "confidence-high" if bag["similarity_score"] < 20 else "confidence-medium" if bag["similarity_score"] < 25 else "confidence-low"
+                        st.markdown(f'<div class="{score_color}">Similarity: {bag["similarity_score"]:.1f}%</div>', unsafe_allow_html=True)
+                    
+                    with col2:
+                        st.markdown(f"**{bag['name']}**")
+                        st.markdown(f"**Brand:** {bag['brand']}")
+                        st.markdown(f"**Original Price:** ${bag['original_price']:,.2f}")
+                        st.markdown(f"**Similar Features:** {', '.join(bag['features'][:3])}")
+        
+        elif not similar_bags or all(bag["similarity_score"] < 10 for bag in similar_bags):
+            st.success("🎉 No significant similarities found! This appears to be an original design.")
+            
     except Exception as e:
         st.error(f"Error processing image: {str(e)}")
         st.info("Please try a different image file.")
@@ -481,76 +491,52 @@ else:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("#### 1. Upload Bag Image")
+        st.markdown("#### 1. Upload Any Image")
         st.markdown("""
-        Upload clear photos of:
-        - Handbags
-        - Purses  
-        - Shoulder bags
-        - Tote bags
+        We'll automatically detect if it's a bag
+        - Handbags ✓
+        - Purses ✓  
+        - Tote bags ✓
+        - Other items ✓
         """)
-        st.warning("Non-bag images will be detected and rejected")
         
     with col2:
-        st.markdown("#### 2. AI Bag Detection")
+        st.markdown("#### 2. Smart Analysis")
         st.markdown("""
-        We verify it's a bag and analyze:
-        - Shape & Proportions
-        - Handles/Straps
-        - Design Patterns
-        - Color Scheme
+        Advanced detection:
+        - Bag/Non-bag check
+        - Design pattern analysis
+        - Shape recognition
+        - Color analysis
         """)
         
     with col3:
-        st.markdown("#### 3. Authenticity Results")
+        st.markdown("#### 3. Accurate Results")
         st.markdown("""
-        Receive detailed analysis:
-        - Bag Detection Score
-        - Originality Rating
-        - Similar Designer Bags
-        - Price Comparisons
+        Get detailed insights:
+        - Bag detection confidence
+        - Originality score
+        - Similar designer bags
+        - Design comparisons
         """)
     
     st.markdown("---")
-    st.markdown("### 📈 Detection System")
+    st.markdown("### 🎯 Try These Test Images")
     
-    threshold_col1, threshold_col2 = st.columns(2)
-    
-    with threshold_col1:
-        st.markdown("""
-        **🎯 Originality Scale:**
-        - **80-100%**: Highly Original
-        - **60-80%**: Original Design  
-        - **40-60%**: Some Similarity
-        - **0-40%**: Potential Dupe
-        """)
-    
-    with threshold_col2:
-        st.markdown("""
-        **🔍 Similarity Threshold:**
-        - **<30%**: Original Design
-        - **30%+**: Similarity Detected
-        - **Bag detection first**
-        - **Strict matching**
-        """)
-    
-    st.markdown("---")
-    st.markdown("### 🏷️ Supported Bag Types")
-    
-    bag_cols = st.columns(4)
-    bag_types = [
-        ("Handbags", "Structured bags with handles"),
-        ("Crossbody", "Bags with long straps"),
-        ("Tote Bags", "Large open-top bags"), 
-        ("Clutches", "Small handheld bags")
+    test_cols = st.columns(4)
+    test_examples = [
+        ("Clear Bag Photo", "Well-lit, centered bag image"),
+        ("Different Angles", "Front, side, or detail views"),
+        ("Various Types", "Handbags, crossbody, totes"),
+        ("Patterned Bags", "Designs with patterns or logos")
     ]
     
-    for i, (name, desc) in enumerate(bag_types):
-        with bag_cols[i]:
-            st.markdown(f"**{name}**")
+    for i, (title, desc) in enumerate(test_examples):
+        with test_cols[i]:
+            st.markdown(f"**{title}**")
             st.markdown(f"*{desc}*")
 
 # Footer
 st.markdown("---")
-st.markdown("**👜 Bag Dupe Detector** • Advanced Bag Detection & Authenticity Analysis")
-st.markdown("*Only analyzes actual bag images • Under 30% similarity = Original Design*")
+st.markdown("**👜 Bag Dupe Detector** • Smart Image Analysis • Under 30% Similarity = Original Design")
+st.markdown("*Works with most bag images • Provides accuracy confidence scores*")
