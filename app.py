@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import random
+from PIL import Image
+import io
 
 # Page configuration
 st.set_page_config(
@@ -70,28 +72,22 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
+    .category-badge {
+        background-color: #6c5ce7;
+        color: white;
+        padding: 0.3rem 0.8rem;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        display: inline-block;
+        margin-bottom: 0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Header Section
-st.markdown('<div class="main-header">Fashion Dupe Finder</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Find affordable alternatives to your favorite fashion items</div>', unsafe_allow_html=True)
-
-# Upload Section
-st.markdown("### Upload Product Image")
-st.markdown('<div class="upload-section">', unsafe_allow_html=True)
-
-uploaded_file = st.file_uploader(
-    "Choose an image...", 
-    type=['jpg', 'jpeg', 'png'],
-    label_visibility="collapsed"
-)
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Mock data for similar products (replace with your actual ML model results)
-def generate_mock_products():
-    return [
+# Mock product database for different categories
+PRODUCT_DATABASE = {
+    "bags": [
         {
             "name": "Designer Style Crossbody Bag",
             "retailer": "Amazon Fashion",
@@ -115,38 +111,163 @@ def generate_mock_products():
             "reviews": 456,
             "shipping": "FREE shipping",
             "match_score": 85
+        }
+    ],
+    "shoes": [
+        {
+            "name": "Running Sneakers - Premium Comfort",
+            "retailer": "Shoe Palace",
+            "price": 45.99,
+            "original_price": 150.00,
+            "savings": 104.01,
+            "savings_percent": 69.3,
+            "rating": 4.5,
+            "reviews": 1245,
+            "shipping": "FREE delivery",
+            "match_score": 92
         },
         {
-            "name": "Trendy Shoulder Bag",
-            "retailer": "Style Outlet",
-            "price": 28.99,
+            "name": "Casual Lifestyle Shoes",
+            "retailer": "Footwear Express",
+            "price": 39.99,
             "original_price": 120.00,
-            "savings": 91.01,
-            "savings_percent": 75.8,
+            "savings": 80.01,
+            "savings_percent": 66.7,
+            "rating": 4.2,
+            "reviews": 678,
+            "shipping": "FREE shipping",
+            "match_score": 87
+        }
+    ],
+    "shirts": [
+        {
+            "name": "Premium Cotton T-Shirt",
+            "retailer": "Clothing Co.",
+            "price": 19.99,
+            "original_price": 65.00,
+            "savings": 45.01,
+            "savings_percent": 69.2,
             "rating": 4.4,
-            "reviews": 321,
-            "shipping": "$4.99 delivery",
-            "match_score": 82
+            "reviews": 1567,
+            "shipping": "FREE delivery",
+            "match_score": 91
+        },
+        {
+            "name": "Designer Style Button-Down Shirt",
+            "retailer": "Fashion Outlet",
+            "price": 29.99,
+            "original_price": 95.00,
+            "savings": 65.01,
+            "savings_percent": 68.4,
+            "rating": 4.3,
+            "reviews": 892,
+            "shipping": "$2.99 delivery",
+            "match_score": 88
+        }
+    ],
+    "dresses": [
+        {
+            "name": "Elegant Summer Dress",
+            "retailer": "Style Boutique",
+            "price": 34.99,
+            "original_price": 120.00,
+            "savings": 85.01,
+            "savings_percent": 70.8,
+            "rating": 4.6,
+            "reviews": 2341,
+            "shipping": "FREE delivery",
+            "match_score": 94
+        }
+    ],
+    "jeans": [
+        {
+            "name": "Slim Fit Denim Jeans",
+            "retailer": "Denim World",
+            "price": 41.99,
+            "original_price": 110.00,
+            "savings": 68.01,
+            "savings_percent": 61.8,
+            "rating": 4.3,
+            "reviews": 1567,
+            "shipping": "FREE delivery",
+            "match_score": 86
         }
     ]
+}
+
+def detect_category_from_filename(filename):
+    """Simple category detection based on filename keywords"""
+    filename_lower = filename.lower()
+    
+    if any(word in filename_lower for word in ['shoe', 'sneaker', 'boot', 'footwear']):
+        return "shoes"
+    elif any(word in filename_lower for word in ['shirt', 'top', 'tshirt', 'blouse']):
+        return "shirts"
+    elif any(word in filename_lower for word in ['dress', 'gown', 'frock']):
+        return "dresses"
+    elif any(word in filename_lower for word in ['jean', 'pant', 'trouser']):
+        return "jeans"
+    elif any(word in filename_lower for word in ['bag', 'purse', 'handbag', 'backpack']):
+        return "bags"
+    else:
+        # Return random category if no match found
+        return random.choice(list(PRODUCT_DATABASE.keys()))
+
+def get_similar_products(category, num_products=3):
+    """Get similar products based on category"""
+    if category in PRODUCT_DATABASE:
+        products = PRODUCT_DATABASE[category]
+        # Return requested number of products (or all available if less)
+        return products[:min(num_products, len(products))]
+    else:
+        # Return random products if category not found
+        random_category = random.choice(list(PRODUCT_DATABASE.keys()))
+        return PRODUCT_DATABASE[random_category][:num_products]
+
+# Header Section
+st.markdown('<div class="main-header">Fashion Dupe Finder</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Find affordable alternatives to your favorite fashion items</div>', unsafe_allow_html=True)
+
+# Upload Section
+st.markdown("### Upload Product Image")
+st.markdown('<div class="upload-section">', unsafe_allow_html=True)
+
+uploaded_file = st.file_uploader(
+    "Choose an image...", 
+    type=['jpg', 'jpeg', 'png'],
+    label_visibility="collapsed",
+    help="Upload images of bags, shoes, shirts, dresses, or any fashion item"
+)
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Display uploaded image and results
 if uploaded_file is not None:
+    # Detect category from filename
+    detected_category = detect_category_from_filename(uploaded_file.name)
+    
     # Display uploaded image
     st.markdown("### Uploaded Product")
-    st.image(uploaded_file, width=300)
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.image(uploaded_file, width=300, caption=f"Detected: {detected_category.title()}")
+    
+    with col2:
+        st.markdown(f'<div class="category-badge">Category: {detected_category.title()}</div>', unsafe_allow_html=True)
+        st.info(f"🔍 Finding affordable {detected_category} alternatives...")
     
     # Show loading and then display results
-    with st.spinner('Finding similar products...'):
+    with st.spinner(f'Finding similar {detected_category}...'):
         # Simulate processing time
         import time
         time.sleep(2)
         
         st.markdown("### Similar Products Found")
-        st.markdown("**Showing 3 affordable alternatives**")
+        st.markdown(f"**Showing 3 affordable {detected_category} alternatives**")
         
-        # Get mock products
-        products = generate_mock_products()
+        # Get products based on detected category
+        products = get_similar_products(detected_category, 3)
         
         # Display each product card
         for i, product in enumerate(products, 1):
@@ -168,8 +289,9 @@ if uploaded_file is not None:
             st.markdown("---")
 
 else:
-    st.info("👆 Please upload a product image to find affordable alternatives")
+    st.info("👆 Please upload a fashion item image (shoes, bags, shirts, dresses, jeans, etc.)")
 
 # Footer
 st.markdown("---")
 st.markdown("*Fashion Dupe Finder · Streamlit*")
+st.markdown("**Supported categories:** Bags, Shoes, Shirts, Dresses, Jeans, and more!")
